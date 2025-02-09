@@ -67,7 +67,7 @@ public class QuizApp {
     private static List<Integer> getQuestionsToAsk(boolean incorrectMode){
         List<Integer> questionsToAsk = new ArrayList<>();
         String sql = incorrectMode
-        ? "SELECT DISTINCT question_id FROM user_answers WHERE user_id = ? AND is_correct = false"
+        ? "SELECT DISTINCT question_id FROM user_answers WHERE user_id = ? AND is_correct = 0"
         : "SELECT question_id FROM questions";
 
         try(Connection conn = DatabaseManager.connect();
@@ -101,7 +101,7 @@ public class QuizApp {
                     List<String> options = new ArrayList<>();
                     options.add(correctAnswer);
 
-                    String wrongSql = "SELECT correct_answer FROM questions WHERE correct_answer 1= ? ORDER BY RANDOM() LIMIT 3";
+                    String wrongSql = "SELECT correct_answer FROM questions WHERE correct_answer != ? ORDER BY RANDOM() LIMIT 3";
                     try(PreparedStatement pstmt2 = conn.prepareStatement(wrongSql)){
                         pstmt2.setString(1, correctAnswer);
                         ResultSet wrongRs = pstmt2.executeQuery();
@@ -127,7 +127,7 @@ public class QuizApp {
                 pstmt.setString(1,userId);
                 pstmt.setInt(2, questionId);
                 pstmt.setString(3, selectedAnswer);
-                pstmt.setBoolean(4, isCorrect);
+                pstmt.setInt(4, isCorrect ? 1:0);
                 pstmt.executeUpdate();
             } catch (SQLException e){
                 e.printStackTrace();
