@@ -53,8 +53,17 @@ public class QuizApp {
             int userChoice = scanner.nextInt();
             String selectedAnswer = options.get(userChoice - 1);
 
-            boolean isCorrect = selectedAnswer.equals(correctAnswer);
+            //デバッグ
+            //System.out.println("選択肢:["+ selectedAnswer +"]");  //デバッグ用後で消す
+            //System.out.println("正解:["+correctAnswer+"]"); //デバッグ用後で消す
+
+            boolean isCorrect = selectedAnswer.equalsIgnoreCase(correctAnswer.trim());
+            
+            //デバッグ..
+            System.out.println("ユーザーの選択: [" + selectedAnswer + "] 正解: [" + correctAnswer + "] 判定: " + isCorrect);
+
             recordAnswer(questionId, selectedAnswer, isCorrect);
+            
 
             if(isCorrect){
                 System.out.println("正解です！");
@@ -79,6 +88,10 @@ public class QuizApp {
                 while(rs.next()){
                     questionsToAsk.add(rs.getInt("question_id"));
                 }
+
+                // debug
+                //System.out.println("取得した問題リスト (" + (incorrectMode ? "間違えた問題のみ" : "全問題") + "): " + questionsToAsk);
+
             }catch(SQLException e){
                 e.printStackTrace();
             }
@@ -96,7 +109,7 @@ public class QuizApp {
 
                 if(rs.next()){
                     String questionText = rs.getString("prefecture");
-                    String correctAnswer = rs.getString("correct_answer");
+                    String correctAnswer = rs.getString("correct_answer").trim();
 
                     List<String> options = new ArrayList<>();
                     options.add(correctAnswer);
@@ -109,9 +122,27 @@ public class QuizApp {
                             options.add(wrongRs.getString("correct_answer"));
                         }
                     }
+              
+                    //debug
+                    //System.out.println("問題:[" + questionText +"]");
+                    //System.out.println("正解: [" + correctAnswer +"]");
+                    //System.out.println("選択肢リスト:" + options);
+
+                    //debug
+                    System.out.println("シャッフル前の選択肢" + options);
 
                     Collections.shuffle(options);
+
+                    //new code シャッフル後の正解の位置を再取得する
+                    int correctIndex = options.indexOf(correctAnswer);
+
+                    //debug
+                    System.out.println("シャッフル後の選択肢" + options);
+
+                    //new code 正解の選択肢を正しく比較する。
                     questionfData.put(questionText, options);
+                    questionfData.put("correctIndex", Collections.singletonList(String.valueOf(correctIndex))); //正解のインデックスを渡す
+                    
                 }
             }catch(SQLException e){
                 e.printStackTrace();

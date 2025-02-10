@@ -1,7 +1,7 @@
 import java.sql.*;
 
 public class DatabaseManager {
-    private static final String DB_URL = "jdbc:sqlite:quiz.db";
+    private static final String DB_URL = "jdbc:sqlite:data/quiz.db";
     
     public static Connection connect(){
         try{
