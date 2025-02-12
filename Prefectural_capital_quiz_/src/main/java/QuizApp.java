@@ -35,13 +35,32 @@ public class QuizApp {
     }
     
     private static void takeQuiz(boolean incorrectMode){
+
+        //DEBUG
+        System.out.println("現在のモード:" + (incorrectMode ? "間違えた問題のみ" : "全問解答"));
+
         List<Integer> questionsToAsk = getQuestionsToAsk(incorrectMode);
 
         for(int questionId : questionsToAsk){
             Map<String, List<String>> questionData = getQuestionData(questionId);
-            String questionText = questionData.keySet().iterator().next();
+            String questionText = questionData.keySet().stream()
+                .filter(key -> !key.equals("correctAnswer")) //"correctAnswer" キーを除外
+                .findFirst()
+                .orElse("エラー:問題データなし");
             List<String> options = questionData.get(questionText);
-            String correctAnswer = options.get(0);
+            List<String> correctAnswerList = questionData.get("correctAnswer");
+
+            //debug
+            //System.out.println("取得した questionData: " + questionData);
+            //System.out.println("取得した correctAnswerList: " + correctAnswerList);
+
+
+            if(correctAnswerList == null){
+                System.out.println("エラー: 正解データが見つかりませんでした。データベースを確認してください。");
+                continue;
+            }
+
+            String correctAnswerShuffled = correctAnswerList.get(0); //シャッフル後の正解
 
 
             System.out.println("\n" + questionText);
@@ -57,10 +76,10 @@ public class QuizApp {
             //System.out.println("選択肢:["+ selectedAnswer +"]");  //デバッグ用後で消す
             //System.out.println("正解:["+correctAnswer+"]"); //デバッグ用後で消す
 
-            boolean isCorrect = selectedAnswer.equalsIgnoreCase(correctAnswer.trim());
+            boolean isCorrect = selectedAnswer.trim().equalsIgnoreCase(correctAnswerShuffled.trim());
             
             //デバッグ..
-            System.out.println("ユーザーの選択: [" + selectedAnswer + "] 正解: [" + correctAnswer + "] 判定: " + isCorrect);
+            //System.out.println("ユーザーの選択: [" + selectedAnswer + "] 正解: [" + correctAnswer + "] 判定: " + isCorrect);
 
             recordAnswer(questionId, selectedAnswer, isCorrect);
             
@@ -79,6 +98,9 @@ public class QuizApp {
         ? "SELECT DISTINCT question_id FROM user_answers WHERE user_id = ? AND is_correct = 0"
         : "SELECT question_id FROM questions";
 
+        //debug
+        System.out.println("実行するクエリ" + sql);
+
         try(Connection conn = DatabaseManager.connect();
             PreparedStatement pstmt = conn.prepareStatement(sql)){
                 if(incorrectMode){
@@ -90,7 +112,7 @@ public class QuizApp {
                 }
 
                 // debug
-                //System.out.println("取得した問題リスト (" + (incorrectMode ? "間違えた問題のみ" : "全問題") + "): " + questionsToAsk);
+                System.out.println("取得した問題リスト (" + (incorrectMode ? "間違えた問題のみ" : "全問題") + "): " + questionsToAsk);
 
             }catch(SQLException e){
                 e.printStackTrace();
@@ -99,7 +121,11 @@ public class QuizApp {
     }
 
     private static Map<String, List<String>> getQuestionData(int questionId){
-        Map<String, List<String>> questionfData = new HashMap<>();
+        Map<String, List<String>> questionData = new HashMap<>();
+        List<String> correctAnswerList = new ArrayList<>();
+        List<String> options = new ArrayList<>();
+        String correctAnswer = "";
+
         String sql = "SELECT * FROM questions WHERE question_id = ?";
 
         try(Connection conn = DatabaseManager.connect();
@@ -109,17 +135,20 @@ public class QuizApp {
 
                 if(rs.next()){
                     String questionText = rs.getString("prefecture");
-                    String correctAnswer = rs.getString("correct_answer").trim();
+                    correctAnswer = rs.getString("correct_answer").trim();
+                   
 
-                    List<String> options = new ArrayList<>();
-                    options.add(correctAnswer);
+                    correctAnswerList.add(correctAnswer.trim());
+
+                    
+                    options.add(correctAnswer.trim());
 
                     String wrongSql = "SELECT correct_answer FROM questions WHERE correct_answer != ? ORDER BY RANDOM() LIMIT 3";
                     try(PreparedStatement pstmt2 = conn.prepareStatement(wrongSql)){
                         pstmt2.setString(1, correctAnswer);
                         ResultSet wrongRs = pstmt2.executeQuery();
                         while(wrongRs.next()){
-                            options.add(wrongRs.getString("correct_answer"));
+                            options.add(wrongRs.getString("correct_answer").trim());
                         }
                     }
               
@@ -129,40 +158,68 @@ public class QuizApp {
                     //System.out.println("選択肢リスト:" + options);
 
                     //debug
-                    System.out.println("シャッフル前の選択肢" + options);
+                    //System.out.println("シャッフル前の選択肢" + options);
+                    //System.out.println("シャッフル前の正解: [" + correctAnswer +"]");
+
+                    int correctIndexBeforeShuffle = options.indexOf(correctAnswer);
+                    if (correctIndexBeforeShuffle == -1){
+                        System.out.println("警告: シャッフル前に正解が見つかりませんでした。データを確認してください。");
+                        return null;
+                    }
 
                     Collections.shuffle(options);
 
                     //new code シャッフル後の正解の位置を再取得する
-                    int correctIndex = options.indexOf(correctAnswer);
+                    int correctIndexAfterShuffle = options.indexOf(correctAnswer);
+                    if (correctIndexAfterShuffle == -1){
+                        System.out.println("警告: シャッフル後に正解が見つかりませんでした。データを確認してください。");
+                        return null;
+                    }
 
                     //debug
-                    System.out.println("シャッフル後の選択肢" + options);
+                    //System.out.println("シャッフル後の選択肢" + options);
+                    //System.out.println("シャッフル後の正解: [" + correctAnswer +"]");
 
                     //new code 正解の選択肢を正しく比較する。
-                    questionfData.put(questionText, options);
-                    questionfData.put("correctIndex", Collections.singletonList(String.valueOf(correctIndex))); //正解のインデックスを渡す
+                    questionData.put(questionText, options);
+                    questionData.put("correctAnswer", correctAnswerList); //正解のインデックスを渡す
                     
                 }
             }catch(SQLException e){
                 e.printStackTrace();
             }
-            return questionfData;
+            //DEBUG
+            System.out.println("取得した questionData: [" + questionData +"]");
+
+            return questionData;
     }
 
     private static void recordAnswer(int questionId, String selectedAnswer, boolean isCorrect){
         String sql = "INSERT INTO user_answers (user_id, question_id, selected_answer, is_correct) VALUES (?, ?, ?, ?)";
         
-        try (Connection conn = DatabaseManager.connect();
-            PreparedStatement pstmt = conn.prepareStatement(sql)){
-                pstmt.setString(1,userId);
-                pstmt.setInt(2, questionId);
-                pstmt.setString(3, selectedAnswer);
-                pstmt.setInt(4, isCorrect ? 1:0);
-                pstmt.executeUpdate();
-            } catch (SQLException e){
+        try (Connection conn = DatabaseManager.connect()){
+            if(isCorrect){
+                //間違えた問題を正解したらレコードを１に更新
+
+                sql = "UPDATE user_answers SET is_correct = 1 WHERE user_id = ? AND question_id = ?";
+                try(PreparedStatement pstmt = conn.prepareStatement(sql)){
+                    pstmt.setString(1, userId);
+                    pstmt.setInt(2, questionId);
+                    pstmt.executeUpdate();
+                }
+            }else{
+                //新しい間違いを記録
+                sql = "INSERT INTO user_answers (user_id, question_id, selected_answer, is_correct) VALUES(?, ?, ?, ?)";
+                try(PreparedStatement pstmt = conn.prepareStatement(sql)){
+                    pstmt.setString(1,userId);
+                    pstmt.setInt(2, questionId);
+                    pstmt.setString(3, selectedAnswer);
+                    pstmt.setBoolean(4, isCorrect);
+                    pstmt.executeUpdate();}
+                }
+        }   catch (SQLException e){
                 e.printStackTrace();
-            }
+        }
     }
 
 }
