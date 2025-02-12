@@ -1,28 +1,29 @@
-import java.sql.*;
-import java.util.*;
+import java.sql.*; // JDBCを使用するためのインポート
+import java.util.*;// ユーティリティクラス（List,Map,Scannerなど）を使用するためのインポート
 
 public class QuizApp {
-    private static final Scanner scanner = new Scanner(System.in);
-    private static String userId;
+    private static final Scanner scanner = new Scanner(System.in); //　ユーザーの入力を受け付けるScannerインスタンス
+    private static String userId; // 現在ログインしているユーザーのIDを保存する変数
 
     public static void main(String[] args){
         System.out.println("クイズアプリへようこそ！");
-        userId = UserManager.loginOrRegister();
+        userId = UserManager.loginOrRegister();　//ユーザーのログインまたは新規登録処理
 
+        //メインメニューのループ
         while(true){
             System.out.println("\nメニュー:");
-            System.out.println("1. 全問回答");
-            System.out.println("2. 間違えた問題を回答");
+            System.out.println("1. 全問解答");
+            System.out.println("2. 間違えた問題を解答");
             System.out.println("3. 終了");
             System.out.print("選択肢を入力してください:");
-            int choice = scanner.nextInt();
+            int choice = scanner.nextInt(); //ユーザーの選択を取得
 
             switch(choice){
                 case 1:
-                    takeQuiz(false);
+                    takeQuiz(false); //全問解答モードを実行
                     break;
                 case 2:
-                    takeQuiz(true);
+                    takeQuiz(true); //間違えた問題のみ解答モードを実行
                     break;
                 case 3:
                     System.out.println("終了します。");
@@ -34,26 +35,21 @@ public class QuizApp {
         }
     }
     
+    /**
+     * クイズの出題を行うメソッド
+     * @param incorrectMode 間違えた問題のみを出題する場合はtrue、全問出題はfalse
+     */
     private static void takeQuiz(boolean incorrectMode){
-
-        //DEBUG
-        System.out.println("現在のモード:" + (incorrectMode ? "間違えた問題のみ" : "全問解答"));
-
-        List<Integer> questionsToAsk = getQuestionsToAsk(incorrectMode);
+        List<Integer> questionsToAsk = getQuestionsToAsk(incorrectMode);// 出題する問題IDを取得
 
         for(int questionId : questionsToAsk){
-            Map<String, List<String>> questionData = getQuestionData(questionId);
+            Map<String, List<String>> questionData = getQuestionData(questionId);// 問題データを取得
             String questionText = questionData.keySet().stream()
                 .filter(key -> !key.equals("correctAnswer")) //"correctAnswer" キーを除外
                 .findFirst()
                 .orElse("エラー:問題データなし");
-            List<String> options = questionData.get(questionText);
-            List<String> correctAnswerList = questionData.get("correctAnswer");
-
-            //debug
-            //System.out.println("取得した questionData: " + questionData);
-            //System.out.println("取得した correctAnswerList: " + correctAnswerList);
-
+            List<String> options = questionData.get(questionText); //選択肢リストを取得
+            List<String> correctAnswerList = questionData.get("correctAnswer"); //正解リストを取得
 
             if(correctAnswerList == null){
                 System.out.println("エラー: 正解データが見つかりませんでした。データベースを確認してください。");
@@ -62,26 +58,21 @@ public class QuizApp {
 
             String correctAnswerShuffled = correctAnswerList.get(0); //シャッフル後の正解
 
-
+            //出題
             System.out.println("\n" + questionText);
             for(int i = 0; i < options.size(); i++){
                 System.out.println((i + 1) + "." + options.get(i));
             }
-
+          
+            //ユーザーの解答を取得
             System.out.print("番号を入力してください：");
             int userChoice = scanner.nextInt();
             String selectedAnswer = options.get(userChoice - 1);
 
-            //デバッグ
-            //System.out.println("選択肢:["+ selectedAnswer +"]");  //デバッグ用後で消す
-            //System.out.println("正解:["+correctAnswer+"]"); //デバッグ用後で消す
-
+            //正誤判定
             boolean isCorrect = selectedAnswer.trim().equalsIgnoreCase(correctAnswerShuffled.trim());
-            
-            //デバッグ..
-            //System.out.println("ユーザーの選択: [" + selectedAnswer + "] 正解: [" + correctAnswer + "] 判定: " + isCorrect);
 
-            recordAnswer(questionId, selectedAnswer, isCorrect);
+            recordAnswer(questionId, selectedAnswer, isCorrect); //解答結果を記録
             
 
             if(isCorrect){
@@ -92,14 +83,16 @@ public class QuizApp {
         }
     }
     
+    /**
+     * 出題する問題のIDを取得するメソッド
+     * @param incorrectMode　間違えた問題のみを対象にする場合はtrue、全問対象はfalse
+     * @return 出題する問題のIDのリスト
+     */
     private static List<Integer> getQuestionsToAsk(boolean incorrectMode){
         List<Integer> questionsToAsk = new ArrayList<>();
         String sql = incorrectMode
         ? "SELECT DISTINCT question_id FROM user_answers WHERE user_id = ? AND is_correct = 0"
         : "SELECT question_id FROM questions";
-
-        //debug
-        System.out.println("実行するクエリ" + sql);
 
         try(Connection conn = DatabaseManager.connect();
             PreparedStatement pstmt = conn.prepareStatement(sql)){
@@ -110,15 +103,17 @@ public class QuizApp {
                 while(rs.next()){
                     questionsToAsk.add(rs.getInt("question_id"));
                 }
-
-                // debug
-                System.out.println("取得した問題リスト (" + (incorrectMode ? "間違えた問題のみ" : "全問題") + "): " + questionsToAsk);
-
             }catch(SQLException e){
                 e.printStackTrace();
             }
             return questionsToAsk;
     }
+
+    /*
+     * 指定した問題IDに対応する問題データを取得
+     * @param questionId 問題のID
+     * @RETURN 問題文、選択肢、正解を格納した　Map 
+     */
 
     private static Map<String, List<String>> getQuestionData(int questionId){
         Map<String, List<String>> questionData = new HashMap<>();
@@ -143,6 +138,7 @@ public class QuizApp {
                     
                     options.add(correctAnswer.trim());
 
+                    //他の選択肢を取得
                     String wrongSql = "SELECT correct_answer FROM questions WHERE correct_answer != ? ORDER BY RANDOM() LIMIT 3";
                     try(PreparedStatement pstmt2 = conn.prepareStatement(wrongSql)){
                         pstmt2.setString(1, correctAnswer);
@@ -151,36 +147,10 @@ public class QuizApp {
                             options.add(wrongRs.getString("correct_answer").trim());
                         }
                     }
-              
-                    //debug
-                    //System.out.println("問題:[" + questionText +"]");
-                    //System.out.println("正解: [" + correctAnswer +"]");
-                    //System.out.println("選択肢リスト:" + options);
 
-                    //debug
-                    //System.out.println("シャッフル前の選択肢" + options);
-                    //System.out.println("シャッフル前の正解: [" + correctAnswer +"]");
+                    Collections.shuffle(options); //選択肢をシャッフル
 
-                    int correctIndexBeforeShuffle = options.indexOf(correctAnswer);
-                    if (correctIndexBeforeShuffle == -1){
-                        System.out.println("警告: シャッフル前に正解が見つかりませんでした。データを確認してください。");
-                        return null;
-                    }
-
-                    Collections.shuffle(options);
-
-                    //new code シャッフル後の正解の位置を再取得する
-                    int correctIndexAfterShuffle = options.indexOf(correctAnswer);
-                    if (correctIndexAfterShuffle == -1){
-                        System.out.println("警告: シャッフル後に正解が見つかりませんでした。データを確認してください。");
-                        return null;
-                    }
-
-                    //debug
-                    //System.out.println("シャッフル後の選択肢" + options);
-                    //System.out.println("シャッフル後の正解: [" + correctAnswer +"]");
-
-                    //new code 正解の選択肢を正しく比較する。
+                    //正解の選択肢を正しく比較する。
                     questionData.put(questionText, options);
                     questionData.put("correctAnswer", correctAnswerList); //正解のインデックスを渡す
                     
@@ -188,19 +158,21 @@ public class QuizApp {
             }catch(SQLException e){
                 e.printStackTrace();
             }
-            //DEBUG
-            System.out.println("取得した questionData: [" + questionData +"]");
-
             return questionData;
     }
-
+    
+    /*
+     * ユーザーの解答結果をデータベースに記録
+     * @param questionID 問題のID
+     * @param selectedAnswer ユーザーの選択した解答
+     * @param isCorrect 正誤判定(正解:true, 不正解:false)
+     */
     private static void recordAnswer(int questionId, String selectedAnswer, boolean isCorrect){
         String sql = "INSERT INTO user_answers (user_id, question_id, selected_answer, is_correct) VALUES (?, ?, ?, ?)";
         
         try (Connection conn = DatabaseManager.connect()){
             if(isCorrect){
-                //間違えた問題を正解したらレコードを１に更新
-
+                //正解した場合、間違えた問題の記録を更新
                 sql = "UPDATE user_answers SET is_correct = 1 WHERE user_id = ? AND question_id = ?";
                 try(PreparedStatement pstmt = conn.prepareStatement(sql)){
                     pstmt.setString(1, userId);
@@ -208,7 +180,7 @@ public class QuizApp {
                     pstmt.executeUpdate();
                 }
             }else{
-                //新しい間違いを記録
+                //不正解の場合、新たに間違えた問題として記録
                 sql = "INSERT INTO user_answers (user_id, question_id, selected_answer, is_correct) VALUES(?, ?, ?, ?)";
                 try(PreparedStatement pstmt = conn.prepareStatement(sql)){
                     pstmt.setString(1,userId);
