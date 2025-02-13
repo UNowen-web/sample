@@ -100,11 +100,14 @@ public class UserManager {
                 }
             } catch (SQLException e) {
                 LOGGER.log(Level.SEVERE, "ログイン処理エラー", e);
+                System.err.println("システムエラーが発生しました。ログインを終了します。");
+                System.exit(1); // システム異常時は強制終了
                 return null;
             }
         }
 
         System.out.println("ログイン試行回数が上限に達しました。しばらくしてから再試行してください。");
+        System.exit(1); // 明示的にプログラムを終了
         return null;
     }
 
