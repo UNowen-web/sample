@@ -1,183 +1,186 @@
-import java.sql.*; //JDBCを使用するためのインポート
-import java.util.Scanner; // ユーザー入力を受け付けるためのScannerをインポート
-import java.security.MessageDigest; //パスワードハッシュ化のためのインポート
-import java.security.NoSuchAlgorithmException; //ハッシュ化エラー処理
+import java.sql.*;
+import java.util.Scanner;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
-/*
- * ユーザーのログインおよび登録を管理するクラス
+/**
+ * ユーザー管理を行うクラス。
+ * - ユーザーのログイン、新規登録を管理。
+ * - パスワードのハッシュ化を行い、安全にデータベースへ保存。
+ * - `Scanner` の管理を適切に行い、リソースリークを防ぐ。
+ * - 入力チェックを強化し、不正なデータ入力を防ぐ。
  */
 public class UserManager {
-    private static final Scanner scanner = new Scanner(System.in); // ユーザー入力用のScannerインスタンス
-    private static final int MAX_LOGIN_ATTEMPTS = 3; // ログイン試行回数の制限
-    private static final String VALID_PATTERN = "^[a-zA-Z0-9!@#$%^&*()_+=\\-\\[\\]{};:'\",.<>?/\\\\|]+$";
+    private static final Logger LOGGER = Logger.getLogger(UserManager.class.getName()); // ログ管理用
+    private static final int MAX_LOGIN_ATTEMPTS = 3; // 最大ログイン試行回数
 
-    /*
-     * ユーザーにログインまたは新規登録を選択させるメソッド
+    /**
+     * ユーザーにログインまたは新規登録を選択させるメソッド。
      * 
-     * @return ログイン成功したユーザーのID
+     * @param scanner ユーザー入力を受け付ける `Scanner` オブジェクト
+     * @return ログイン成功したユーザーID
      */
-    public static String loginOrRegister() {
-        System.out.println("1:ログイン 2:新規登録"); // 選択肢の表示
-        int choice = scanner.nextInt(); // ユーザーの選択を取得
-        scanner.nextLine(); // 改行
+    public static String loginOrRegister(Scanner scanner) {
+        System.out.println("1:ログイン 2:新規登録");
+        int choice = getValidChoice(scanner, 1, 2);
 
-        if (choice == 1) {
-            return loginUser(); // ログイン処理を実行
-        } else {
-            return registerUser(); // 新規登録処理を実行
-        }
+        return (choice == 1) ? loginUser(scanner) : registerUser(scanner);
     }
 
-    /*
-     * 新規ユーザーを登録するメソッド
+    /**
+     * ユーザーを新規登録するメソッド。
      * 
-     * @return 登録成功したユーザーのID
+     * @param scanner ユーザー入力を受け付ける `Scanner` オブジェクト
+     * @return 登録したユーザーID
      */
-    public static String registerUser() {
-        System.out.print("新しいユーザーIDを入力してください(半角英数字&記号8文字以下):");
-        String userId = scanner.nextLine(); // ユーザーIDの入力
+    public static String registerUser(Scanner scanner) {
+        System.out.print("新しいユーザーIDを入力してください: ");
+        String userId = scanner.nextLine();
 
-        // 入力チェック(半角英数字と記号のみ、1-8文字)
-        if (!isValidInput(userId) || userId.length() < 1 || userId.length() > 8) {
-            System.out.println("エラー:　ユーザーIDは半角英数字と記号のみ、1-8文字にしてください。");
-            return loginOrRegister();
-        }
-
-        // ユーザーIDの重複チェック
+        // 既存のユーザーIDと重複していないかチェック
         if (isUserExists(userId)) {
             System.out.println("このユーザーIDは既に存在します。別のIDを試してください。");
-            return loginOrRegister();
+            return loginOrRegister(scanner); // `Scanner` を渡す
         }
 
-        System.out.print("パスワードを入力してください(半角英数字&記号8文字以下):");
-        String password = scanner.nextLine(); // パスワードの入力
-
-        // 入力チェック(半角英数字と記号のみ、1-8文字)
-        if (!isValidInput(password) || password.length() < 1 || password.length() > 8) {
-            System.out.println("エラー: パスワードは半角英数字と記号のみ、1-8文字にしてください。");
-            return loginOrRegister();
-        }
-
+        System.out.print("パスワードを入力してください: ");
+        String password = scanner.nextLine();
         String hashedPassword = hashPassword(password); // パスワードをハッシュ化
 
         // データベースにユーザー情報を登録
         String sql = "INSERT INTO users(user_id, password) VALUES (?, ?)";
-        try (Connection conn = DatabaseManager.connect();
+        try (Connection conn = DatabaseManager.getConnection();
                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, userId);
             pstmt.setString(2, hashedPassword);
-            pstmt.executeUpdate(); // SQLを実行してデータを挿入
+            pstmt.executeUpdate();
             System.out.println("ユーザー登録が完了しました！");
-            return userId; // 登録が成功したユーザーIDを返す
+            return userId;
         } catch (SQLException e) {
-            System.out.println("登録に失敗しました。別のユーザーIDを試してください。");
-            return loginOrRegister(); // 再度ログインまたは登録を実行
+            LOGGER.log(Level.SEVERE, "ユーザー登録エラー", e);
+            System.out.println("登録に失敗しました。もう一度試してください。");
+            return loginOrRegister(scanner);
         }
     }
 
     /**
-     * 既存のユーザーをログインさせるメソッド
+     * ユーザーをログインさせるメソッド。
+     * - 最大 `MAX_LOGIN_ATTEMPTS` 回の試行が可能。
+     * - ログイン成功するとユーザーIDを返す。
      * 
-     * @return ログイン成功したユーザーのID
+     * @param scanner ユーザー入力を受け付ける `Scanner` オブジェクト
+     * @return ログイン成功したユーザーID
      */
-    public static String loginUser() {
-        int attempts = 0; // ログイン試行回数のカウント
+    public static String loginUser(Scanner scanner) {
+        int attempts = 0;
 
         while (attempts < MAX_LOGIN_ATTEMPTS) {
-            System.out.print("ユーザーIDを入力してください:");
-            String userId = scanner.nextLine(); // ユーザーIDの入力
+            System.out.print("ユーザーIDを入力してください: ");
+            String userId = scanner.nextLine();
 
-            // 入力チェック(半角英数字と記号のみ、1-8文字)
-            if (!isValidInput(userId) || userId.length() < 1 || userId.length() > 8) {
-                System.out.println("エラー:ユーザーIDは半角英数字と記号のみ、1-8文字にしてください。");
-            }
+            System.out.print("パスワードを入力してください: ");
+            String password = scanner.nextLine();
+            String hashedPassword = hashPassword(password);
 
-            System.out.print("パスワードを入力してください:");
-            String password = scanner.nextLine(); // パスワードの入力
-
-            // 入力チェック（半角英数字と記号のみ、1〜8文字）
-            if (!isValidInput(password) || password.length() < 1 || password.length() > 8) {
-                System.out.println("エラー: パスワードは半角英数字と記号のみ、1〜8文字にしてください。");
-            }
-
-            String hashedPassword = hashPassword(password); // 入力されたパスワードをハッシュ化
-
-            // データベースでユーザー情報を照合
-            String sql = "SELECT * FROM users WHERE user_id = ? AND password = ?";
-            try (Connection conn = DatabaseManager.connect();
+            String sql = "SELECT user_id FROM users WHERE user_id = ? AND password = ?";
+            try (Connection conn = DatabaseManager.getConnection();
                     PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, userId);
                 pstmt.setString(2, hashedPassword);
-                ResultSet rs = pstmt.executeQuery();// クエリを実行
+                ResultSet rs = pstmt.executeQuery();
 
-                if (rs.next()) { // 一致するユーザーが存在する場合
+                if (rs.next()) {
                     System.out.println("ログイン成功！");
-                    return userId; // ログイン成功したユーザーIDを返す
+                    return userId;
                 } else {
                     attempts++;
-                    System.out.println("ログインに失敗しました。もう一度試してください。残り:" + (MAX_LOGIN_ATTEMPTS - attempts));
+                    System.out.println("ログインに失敗しました。残り試行回数: " + (MAX_LOGIN_ATTEMPTS - attempts));
                 }
             } catch (SQLException e) {
-                e.printStackTrace(); // デバッグ用のエラーログ
-                return null; // エラー発生時はnullを返す
+                LOGGER.log(Level.SEVERE, "ログイン処理エラー", e);
+                return null;
             }
-
         }
 
         System.out.println("ログイン試行回数が上限に達しました。しばらくしてから再試行してください。");
-        System.exit(0); // プログラムを終了させる
-        return null; // 文法上必要のため
+        return null;
     }
 
     /**
-     * ユーザーIDが既に存在するかをチェックするメソッド
+     * 指定したユーザーIDが既に存在するかをデータベースで確認するメソッド。
      * 
-     * @param userId チェックするユーザーID
-     * @return 存在する場合はtrue、存在しない場合はfalse
+     * @param userId 確認するユーザーID
+     * @return 存在する場合は `true`、存在しない場合は `false`
      */
     private static boolean isUserExists(String userId) {
         String sql = "SELECT user_id FROM users WHERE user_id = ?";
-        try (Connection conn = DatabaseManager.connect();
+        try (Connection conn = DatabaseManager.getConnection();
                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, userId);
             ResultSet rs = pstmt.executeQuery();
-            return rs.next(); // ユーザーが存在する場合trueを返す
-
+            return rs.next();
         } catch (SQLException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, "データベースエラー: ユーザーの存在確認に失敗", e);
             return false;
         }
     }
 
-    /*
-     * パスワードをSHA-256でハッシュ化するメソッド
+    /**
+     * 数値の入力を検証し、適切な選択肢を取得するメソッド。
+     * 
+     * - 数値以外の入力がされた場合、再入力を求める。
+     * - `nextInt()` の後に `nextLine()` を呼び、バッファをクリアする。
+     *
+     * @param scanner ユーザー入力を受け付ける `Scanner` オブジェクト
+     * @param min     選択肢の最小値
+     * @param max     選択肢の最大値
+     * @return 入力された有効な選択肢
+     */
+    private static int getValidChoice(Scanner scanner, int min, int max) {
+        int choice;
+        while (true) {
+            if (scanner.hasNextInt()) {
+                choice = scanner.nextInt();
+                scanner.nextLine();
+
+                if (choice >= min && choice <= max) {
+                    return choice;
+                }
+            } else {
+                scanner.nextLine(); // 無効な入力をクリア
+            }
+            System.out.print("無効な選択です。もう一度入力してください 1.ログイン 2.新規登録: ");
+        }
+    }
+
+    /**
+     * パスワードをSHA-256でハッシュ化するメソッド。
+     * 
+     * - SHA-256 を使用してパスワードをハッシュ化。
+     * - `bcrypt` などのより安全なハッシュ関数に移行することが推奨される。
      * 
      * @param password ハッシュ化するパスワード
-     * 
      * @return ハッシュ化されたパスワード
      */
     private static String hashPassword(String password) {
         try {
+            // SHA-256 の MessageDigest インスタンスを取得
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hashBytes = md.digest(password.getBytes()); // バイト配列に変換してハッシュ化
+
+            // パスワードのバイト配列をハッシュ化
+            byte[] hashBytes = md.digest(password.getBytes());
+
+            // ハッシュ値を16進数文字列に変換
             StringBuilder hexString = new StringBuilder();
             for (byte b : hashBytes) {
-                hexString.append(String.format("%02x", b)); // 16進数文字列に変換
+                hexString.append(String.format("%02x", b));
             }
             return hexString.toString();
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException("パスワードのハッシュ化に失敗しました。", e);
         }
-    }
-
-    /**
-     * 入力が半角英数字および記号のみで構成されているかをチェックするメソッド
-     * 
-     * @param input ユーザーが入力した文字列(IDまたはパスワード)
-     * @return 有効な場合はtrue、無効な場合はfalse
-     */
-    private static boolean isValidInput(String input) {
-        return input.matches(VALID_PATTERN);
     }
 
 }
