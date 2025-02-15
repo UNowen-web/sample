@@ -4,6 +4,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  * ユーザー管理を行うクラス。
@@ -13,41 +14,57 @@ import java.util.logging.Logger;
  * - 入力チェックを強化し、不正なデータ入力を防ぐ。
  */
 public class UserManager {
+    private static final Scanner scanner = new Scanner(System.in);
     private static final Logger LOGGER = Logger.getLogger(UserManager.class.getName()); // ログ管理用
     private static final int MAX_LOGIN_ATTEMPTS = 3; // 最大ログイン試行回数
+    private static final String VALID_PATTERN = "^[a-zA-Z0-9!@#$%^&*()_+=-]{1,8}$"; // 半角英数字記号 1~8文字
 
     /**
      * ユーザーにログインまたは新規登録を選択させるメソッド。
      * 
-     * @param scanner ユーザー入力を受け付ける `Scanner` オブジェクト
      * @return ログイン成功したユーザーID
      */
-    public static String loginOrRegister(Scanner scanner) {
+    public static String loginOrRegister() {
         System.out.println("1:ログイン 2:新規登録");
-        int choice = getValidChoice(scanner, 1, 2);
+        int choice = getValidChoice(1, 2); // 1 または 2 のみ許可
 
-        return (choice == 1) ? loginUser(scanner) : registerUser(scanner);
+        if (choice == 1) {
+            return loginUser();
+        } else {
+            return registerUser();
+        }
     }
 
     /**
      * ユーザーを新規登録するメソッド。
      * 
-     * @param scanner ユーザー入力を受け付ける `Scanner` オブジェクト
      * @return 登録したユーザーID
      */
-    public static String registerUser(Scanner scanner) {
-        System.out.print("新しいユーザーIDを入力してください: ");
-        String userId = scanner.nextLine();
+    public static String registerUser() {
+        String userId;
+        do {
+            System.out.print("新しいユーザーIDを入力してください(半角英数字&記号8文字以下): ");
+            userId = scanner.nextLine();
+            if (!isValidInput(userId)) {
+                System.out.println("エラー: ユーザーIDは半角英数字と記号のみ、8文字以下で入力してください。");
+            }
+        } while (!isValidInput(userId));
+        
+        String password;
+        do {
+            System.out.print("パスワードを入力してください(半角英数字&記号8文字以下): ");
+            password = scanner.nextLine();
+            if (!isValidInput(password)) {
+                System.out.println("エラー: パスワードは半角英数字と記号のみ、8文字以下で入力してください。");
+            }
+        } while (!isValidInput(password));
+        String hashedPassword = hashPassword(password); // パスワードをハッシュ化
 
         // 既存のユーザーIDと重複していないかチェック
         if (isUserExists(userId)) {
             System.out.println("このユーザーIDは既に存在します。別のIDを試してください。");
-            return loginOrRegister(scanner); // `Scanner` を渡す
+            return loginOrRegister(); // `Scanner` を渡す
         }
-
-        System.out.print("パスワードを入力してください: ");
-        String password = scanner.nextLine();
-        String hashedPassword = hashPassword(password); // パスワードをハッシュ化
 
         // データベースにユーザー情報を登録
         String sql = "INSERT INTO users(user_id, password) VALUES (?, ?)";
@@ -61,7 +78,7 @@ public class UserManager {
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "ユーザー登録エラー", e);
             System.out.println("登録に失敗しました。もう一度試してください。");
-            return loginOrRegister(scanner);
+            return loginOrRegister();
         }
     }
 
@@ -70,10 +87,9 @@ public class UserManager {
      * - 最大 `MAX_LOGIN_ATTEMPTS` 回の試行が可能。
      * - ログイン成功するとユーザーIDを返す。
      * 
-     * @param scanner ユーザー入力を受け付ける `Scanner` オブジェクト
      * @return ログイン成功したユーザーID
      */
-    public static String loginUser(Scanner scanner) {
+    public static String loginUser() {
         int attempts = 0;
 
         while (attempts < MAX_LOGIN_ATTEMPTS) {
@@ -136,25 +152,25 @@ public class UserManager {
      * - 数値以外の入力がされた場合、再入力を求める。
      * - `nextInt()` の後に `nextLine()` を呼び、バッファをクリアする。
      *
-     * @param scanner ユーザー入力を受け付ける `Scanner` オブジェクト
      * @param min     選択肢の最小値
      * @param max     選択肢の最大値
      * @return 入力された有効な選択肢
      */
-    private static int getValidChoice(Scanner scanner, int min, int max) {
+    private static int getValidChoice(int min, int max) {
         int choice;
         while (true) {
-            if (scanner.hasNextInt()) {
-                choice = scanner.nextInt();
-                scanner.nextLine();
-
+            System.out.print("選択肢を入力してください");
+            String input = scanner.nextLine();
+            try {
+                choice = Integer.parseInt(input);
                 if (choice >= min && choice <= max) {
                     return choice;
+                } else {
+                    System.out.println("エラー: " + min + " から " + max + " の間の数字を入力してください。");
                 }
-            } else {
-                scanner.nextLine(); // 無効な入力をクリア
+            } catch (NumberFormatException e) {
+                System.out.println("エラー: 数字を入力してください。");
             }
-            System.out.print("無効な選択です。もう一度入力してください 1.ログイン 2.新規登録: ");
         }
     }
 
@@ -186,4 +202,12 @@ public class UserManager {
         }
     }
 
+    /**
+     * 入力値が半角英数字記号で8文字以下かどうかを判定するメソッド
+     * @param input ユーザーが入力したIDまたはパスワード
+     * @return 有効な入力ならtrue、無効ならfalse
+     */
+    private static boolean isValidInput(String input) {
+        return Pattern.matches(VALID_PATTERN, input);
+    }
 }
