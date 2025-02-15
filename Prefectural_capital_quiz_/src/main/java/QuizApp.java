@@ -16,7 +16,7 @@ public class QuizApp {
 
         // `try-with-resources` を使用し、Scannerのリソースリークを防ぐ
         try (Scanner scanner = new Scanner(System.in)) {
-            userId = UserManager.loginOrRegister(scanner); // ユーザーのログインまたは新規登録処理
+            userId = UserManager.loginOrRegister(); // ユーザーのログインまたは新規登録処理
 
             while (true) {
                 // メニュー表示
